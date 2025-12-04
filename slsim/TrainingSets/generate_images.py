@@ -5,6 +5,7 @@ from slsim.Sources.SourceTypes.point_plus_extended_source import PointPlusExtend
 from slsim.Lenses.lens import Lens
 from slsim.LsstSciencePipeline.lsst_science_pipeline import lens_inejection_fast
 from astropy.cosmology import FlatLambdaCDM
+import lsst.daf.butler as dafButler # need to be in RSP or NERSC for this?
 import numpy as np
 
 # import configuration file stuff (TODO fix this...)
@@ -69,6 +70,13 @@ lens_obj = Lens(source_class=source_obj,deflector_class=deflector_obj,
     los_class=los_obj,cosmo=groundtruth_cosmo)
 
 # TODO: inject into DP0 co-adds using LsstSciencePipeline code...
+# from Narayan:
+config = "dp02"
+collection = "2.2i/runs/DP0.2"
+butler = dafButler.Butler(config, collections=collection)
+skymap = butler.get("skyMap")
 lens_inejection_fast(lens_pop=[lens_obj])
 
 # TODO: save in MMU .h5 / HuggingFace format 
+
+# TODO: generate a list of unique identifiers up front, and assign as we go (to avoid duplication?)
