@@ -11,6 +11,7 @@ keys_of_interest = [
     'deflector_light_e1',
     'deflector_light_e2',
     'deflector_mag_i',
+    'deflector_mag_F158',
     'deflector_light_R_eff_arcsec', # LOG
     #'deflector_light_n_sersic',
     'z_D', # LOG
@@ -24,7 +25,9 @@ keys_of_interest = [
     'x_host_position_arcsec',
     'y_host_position_arcsec',
     'unlensed_host_mag_i',
-    'unlensed_ps_mag_i'
+    'unlensed_host_mag_F158',
+    'unlensed_ps_mag_i',
+    'unlensed_ps_mag_F158'
 ]
 
 # load in .fits catalog
@@ -57,12 +60,12 @@ samples_kde = gaussian_kde(catalog_samps)
 required_parameters = [
     # NOTE: anything with LOG_ prefix will be exponentiated before input
     'deflector_LOG_theta_E',
-    'deflector_LOG_gamma',
+    'deflector_LOG_gamma_pl',
     'deflector_e1_mass',
     'deflector_e2_mass',
     'deflector_e1_light',
     'deflector_e2_light',
-    'deflector_mag_i',# + any other bands!
+    'deflector_mag_i','deflector_mag_F158',# + any other bands!
     'deflector_LOG_angular_size',
     #'deflector_n_sersic',
     'deflector_LOG_z',
@@ -74,8 +77,8 @@ required_parameters = [
     'source_LOG_angular_size',
     'source_e1','source_e2',
     'source_center_x','source_center_y',
-    'source_mag_i',# + any other bands!
-    'source_ps_mag_i',# + any other bands!
+    'source_mag_i','source_mag_F158',# + any other bands!
+    'source_ps_mag_i','source_ps_mag_F158'# + any other bands!
 ]
 
 

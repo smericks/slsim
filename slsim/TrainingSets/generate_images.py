@@ -1,8 +1,6 @@
-from slsim.Deflectors.DeflectorTypes.epl_sersic import EPLSersic
 from slsim.Deflectors import Deflector
 from slsim.LOS.los_individual import LOSIndividual
 from slsim.Sources.source import Source
-from slsim.Sources.SourceTypes.point_plus_extended_source import PointPlusExtendedSource
 from slsim.Lenses.lens import Lens
 from slsim.ImageSimulation.image_simulation import simulate_image
 from astropy.cosmology import FlatLambdaCDM
@@ -11,20 +9,20 @@ import numpy as np
 # NOTE: required parameters
 required_parameters = {
     # NOTE: anything with LOG_ prefix will be exponentiated before input
-    'deflector_LOG_theta_E','deflector_LOG_gamma','deflector_e1_mass',
+    'deflector_LOG_theta_E','deflector_LOG_gamma_pl','deflector_e1_mass',
     'deflector_e2_mass','deflector_e1_light','deflector_e2_light',
-    'deflector_mag_i',# + any other bands!
+    'deflector_mag_i','deflector_mag_F158',# + any other bands!
     'deflector_LOG_angular_size','deflector_n_sersic',
     'deflector_LOG_z',
-    
+
     'los_gamma1','los_gamma2',
     
     # NOTE: source redshift is an edge case, treatly separately
     'source_LOG_zS_minus_Zd','source_n_sersic',
     'source_LOG_angular_size','source_e1','source_e2',
     'source_center_x','source_center_y',
-    'source_mag_i',# + any other bands!
-    'source_ps_mag_i',# + any other bands!
+    'source_mag_i','source_mag_F158',# + any other bands!
+    'source_ps_mag_i','source_ps_mag_F158'# + any other bands!
 }
 
 # import configuration file stuff (TODO fix this...)
@@ -51,8 +49,9 @@ def sample_an_image():
 
     # make a deflector (captures mass & light of the object...)
     # TODO: what about n_sersic?
-    epl_sersic_required_params = ['LOG_theta_E','LOG_gamma',
-        'e1_mass','e2_mass','e1_light','e2_light','mag_i','LOG_angular_size','n_sersic']
+    epl_sersic_required_params = ['LOG_theta_E','LOG_gamma_pl',
+        'e1_mass','e2_mass','e1_light','e2_light','mag_i','mag_F158',
+        'LOG_angular_size','n_sersic']
 
     deflector_dict = {}
     for key in epl_sersic_required_params:
@@ -80,8 +79,9 @@ def sample_an_image():
     los_obj = LOSIndividual(gamma=gamma)
 
     # make a source (captures extended & point source)
-    source_required_params = ['ps_mag_i','e1','e2',
-        'center_x','center_y','mag_i','LOG_angular_size','n_sersic']
+    source_required_params = ['ps_mag_i','ps_mag_F158',
+        'e1','e2','center_x','center_y','mag_i','mag_F158',
+        'LOG_angular_size','n_sersic']
     source_dict = {}
     for key in source_required_params:
         if ('source_'+key) not in sampled_params_dict.keys():
@@ -99,12 +99,17 @@ def sample_an_image():
         **source_dict)
 
     # combine into a lens object
-    lens_obj = Lens(source_class=source_obj,deflector_class=deflector_obj,
+    slsim_lens_obj = Lens(source_class=source_obj,deflector_class=deflector_obj,
         los_class=los_obj,cosmo=groundtruth_cosmo)
+    
+    # TODO: check for 2nd brightest image mag., single-image systems
+    
 
     # TODO: simulate an image
     image_LSST_i = simulate_image(
-        lens_class=lens_obj, band='i',num_pix=33,
+        lens_class=slsim_lens_obj, 
+        band='i',
+        num_pix=33,
         add_noise=True,observatory="LSST",
         kwargs_psf=None,
         kwargs_numerics=None,
@@ -113,7 +118,20 @@ def sample_an_image():
         with_point_source=True
     )
 
-    return image_LSST_i
+    image_Roman_F158 = simulate_image(
+        lens_class=slsim_lens_obj, 
+        band='F158',
+        num_pix=66,
+        add_noise=True,
+        observatory="Roman",
+        kwargs_psf=None,
+        kwargs_numerics=None,
+        with_source=True,
+        with_deflector=True,
+        with_point_source=True
+    )
+
+    return image_LSST_i, image_Roman_F158, slsim_lens_obj
 
 # TODO: save in MMU .h5 / HuggingFace format 
 
