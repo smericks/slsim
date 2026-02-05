@@ -5,6 +5,8 @@ from slsim.Lenses.lens import Lens
 from slsim.ImageSimulation.image_simulation import simulate_image
 from astropy.cosmology import FlatLambdaCDM
 import numpy as np
+import pandas as pd
+import h5py
 
 # NOTE: required parameters
 required_parameters = {
@@ -139,8 +141,108 @@ def sample_an_image():
         with_point_source=True
     )
 
-    return image_LSST_i, image_Roman_F158, slsim_lens_obj
+    # add image positions to sampled_params_dict
+    # how to deal with diff. # of images when asking for x_point_source
+    sampled_params_dict['num_images'] = slsim_lens_obj.image_number[0]
+    # TODO: will it be weird to write an array instead of a single number?
+    #sampled_params_dict['source_ps_image_x'] = lenst_kwargs[-1]['kwargs_ps'][0]['ra_image']
+    #sampled_params_dict['source_ps_image_y'] = lenst_kwargs[-1]['kwargs_ps'][0]['dec_image']
 
-# TODO: save in MMU .h5 / HuggingFace format 
+    return image_LSST_i, image_Roman_F158, slsim_lens_obj, sampled_params_dict
+
+
+# helper function copied from ddprism: (@swagnerc, @smericks): https://github.com/swagnercarena/ddprism/blob/main/ddprism/hubble_galaxies/build_parent_sample.py
+def _extract_numpy(df_column):
+    """
+    Helper function for dealing with masking in pandas to hdf5.
+
+    Args:
+        df_column (pd.DataFrame): Dataframe column to be convereted to numpy.
+
+    Returns:
+        Numpy array with NaN values properly dealt with.
+    """
+    if df_column.dtype.kind in {'f', 'i'}:  # Numeric columns use np.nan.
+        return df_column.fillna(np.nan).to_numpy()
+    else:  # For non-numeric columns, return NaN string.
+        return df_column.fillna("NaN").to_numpy()
+
+# generate 1,000 images
+def thousand_image_h5(file_name):
+    """
+    Simulate 1,000 images and save into a .h5 file for use in ML training
+    
+    Args:
+        file_name (string): .h5 filepath 
+    Returns:
+    """
+
+    # initialize with a first lens
+    image_LSST_i, image_roman_F158, slsim_obj, params_dict = sample_an_image()
+    LSST_numpix = np.shape(image_LSST_i)[0]
+    roman_numpix = np.shape(image_roman_F158)[0]
+
+    # initialize image arrays
+    image_LSST_array = np.empty((1000,LSST_numpix,LSST_numpix))
+    image_Roman_array = np.empty((1000,roman_numpix,roman_numpix))
+    image_LSST_array[0] = image_LSST_i
+    image_Roman_array[0] = image_roman_F158
+
+    # initialize a pandas df with the metadata
+    metadata_df = pd.DataFrame([params_dict])
+
+    # index from 1 b/c already initialized with i=0
+    for i in range(1,1000):
+        image_LSST_i, image_roman_F158, slsim_obj, params_dict = sample_an_image()
+        image_LSST_array[i] = image_LSST_i
+        image_Roman_array[i] = image_roman_F158
+        metadata_df = pd.concat([metadata_df, pd.DataFrame([params_dict])], ignore_index=True)
+    
+    # TODO: save in MMU .h5 / HuggingFace format 
+    with h5py.File(file_name, 'w') as h5f:
+
+        # save the image data.
+        shape = image_LSST_array.shape
+        h5f.create_dataset(
+            'image_flux_LSST_i', data=image_LSST_array,
+            compression="gzip", chunks=True,
+            maxshape=(None, *shape[1:])
+        )
+        h5f['image_flux_LSST_i'].attrs['description'] = (
+            'Flux values of the cutout images in LSST i-band.' \
+            'Simulated to emulate LSST WFD 10-year co-add.'
+        )
+
+        shape = image_Roman_array.shape
+        h5f.create_dataset(
+            'image_flux_Roman_F158', data=image_Roman_array,
+            compression="gzip", chunks=True,
+            maxshape=(None, *shape[1:])
+        )
+        h5f['image_flux_Roman_F158'].attrs['description'] = (
+            'Flux values of the cutout images in Roman F158' \
+            'Simulated to emulate HLWAS medium tier'
+        )
+
+        # TODO: add in variance map, pixel-masking, object_ID?
+
+        # Optional: add a description for parameters in the metadata
+        descriptions={
+            'deflector_LOG_theta_E':'log(theta_E) for a PEMD profile',
+            'source_LOG_zS_minus_Zd':'log(z_source - z_deflector)',
+            'num_images': 'number of point source images as computed by lenstronomy'
+        }
+
+        # Save the metadata!
+        for key in metadata_df:
+            h5f.create_dataset(
+                    key, data=_extract_numpy(
+                        metadata_df.loc[:, key]
+                    ),
+                    compression="gzip",
+                    chunks=True, maxshape=(None,)
+                )
+            if key in descriptions.keys():
+                h5f[key].attrs['description'] = descriptions[key]
 
 # TODO: generate a list of unique identifiers up front, and assign as we go (to avoid duplication?)
