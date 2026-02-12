@@ -16,6 +16,7 @@ required_parameters = {
     'deflector_mag_i','deflector_mag_F158',# + any other bands!
     'deflector_LOG_angular_size','deflector_n_sersic',
     'deflector_LOG_z',
+    # TODO: vary the deflector center!!
 
     'los_gamma1','los_gamma2',
     
@@ -104,6 +105,7 @@ def sample_an_image():
             **source_dict)
 
         # combine into a lens object
+        # TODO: need to add microlensing kwargs here?
         slsim_lens_obj = Lens(source_class=source_obj,deflector_class=deflector_obj,
             los_class=los_obj,cosmo=groundtruth_cosmo)
         
@@ -168,14 +170,19 @@ def _extract_numpy(df_column):
         return df_column.fillna("NaN").to_numpy()
 
 # generate 1,000 images
-def thousand_image_h5(file_name):
+def training_images_to_h5(file_name,N_images,random_seed=1):
     """
-    Simulate 1,000 images and save into a .h5 file for use in ML training
+    Simulate N_images images and save into a .h5 file for use in ML training
     
     Args:
         file_name (string): .h5 filepath 
+        N_images (int): number images to simulate
+        random_seed (int): seed for np.random(), ensures reproducibility
     Returns:
     """
+
+    # set random seed
+    np.random.seed(random_seed)
 
     # initialize with a first lens
     image_LSST_i, image_roman_F158, slsim_obj, params_dict = sample_an_image()
@@ -183,8 +190,8 @@ def thousand_image_h5(file_name):
     roman_numpix = np.shape(image_roman_F158)[0]
 
     # initialize image arrays
-    image_LSST_array = np.empty((1000,LSST_numpix,LSST_numpix))
-    image_Roman_array = np.empty((1000,roman_numpix,roman_numpix))
+    image_LSST_array = np.empty((N_images,LSST_numpix,LSST_numpix))
+    image_Roman_array = np.empty((N_images,roman_numpix,roman_numpix))
     image_LSST_array[0] = image_LSST_i
     image_Roman_array[0] = image_roman_F158
 
@@ -192,7 +199,7 @@ def thousand_image_h5(file_name):
     metadata_df = pd.DataFrame([params_dict])
 
     # index from 1 b/c already initialized with i=0
-    for i in range(1,1000):
+    for i in range(1,N_images):
         image_LSST_i, image_roman_F158, slsim_obj, params_dict = sample_an_image()
         image_LSST_array[i] = image_LSST_i
         image_Roman_array[i] = image_roman_F158
@@ -201,7 +208,7 @@ def thousand_image_h5(file_name):
     # TODO: save in MMU .h5 / HuggingFace format 
     with h5py.File(file_name, 'w') as h5f:
 
-        # save the image data.
+        # save the image`` data.
         shape = image_LSST_array.shape
         h5f.create_dataset(
             'image_flux_LSST_i', data=image_LSST_array,
