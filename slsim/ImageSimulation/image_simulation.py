@@ -21,6 +21,7 @@ def simulate_image(
     with_source=True,
     with_deflector=True,
     with_point_source=True,
+    mag_pert=None,
     **kwargs
 ):
     """Creates an image of a selected lens with noise.
@@ -46,6 +47,7 @@ def simulate_image(
     :rtype: 2d numpy array
     """
     kwargs_model, kwargs_params = lens_class.lenstronomy_kwargs(band)
+    print('kwargs_model: ', kwargs_model)
     from slsim.ImageSimulation import image_quality_lenstronomy
 
     kwargs_single_band = image_quality_lenstronomy.kwargs_single_band(
@@ -61,6 +63,13 @@ def simulate_image(
         kwargs_source_mag=kwargs_params.get("kwargs_source", None),
         kwargs_ps_mag=kwargs_params.get("kwargs_ps", None),
     )
+
+    # TODO add mag_pert option (this is a hack for now)
+    if mag_pert is not None:
+        for band_idx in range(0,len(kwargs_ps)):
+            print('mag pert values: ', mag_pert)
+            kwargs_ps[band_idx]['mag_pert'] = mag_pert
+
     if kwargs_numerics is None:
         kwargs_numerics = {
             "point_source_supersampling_factor": 1,

@@ -49,6 +49,7 @@ def sample_an_image():
             # edge case for 1 param in sampling block
             if np.isscalar(params_sample):
                 sampled_params_dict[sampling_blocks['param_keys'][0]] = params_sample
+            # agh what about sampling an array, b/c mag_pert = [0,1,2,3]
             else: 
                 for i in range (0,len(sampling_blocks['param_keys'])):
                     sampled_params_dict[sampling_blocks['param_keys'][i]] = params_sample[i].item()
@@ -143,6 +144,23 @@ def sample_an_image():
         with_point_source=True
     )
 
+    # make an image with magnification pertubations
+    mag_pert_array = [sampled_params_dict['mag_pert_im%d'%(n)] for n in range(0,5)]
+    image_Roman_F158_mag_pert = simulate_image(
+        lens_class=slsim_lens_obj, 
+        band='F158',
+        num_pix=66,
+        add_noise=True,
+        observatory="Roman",
+        kwargs_psf=None,
+        kwargs_numerics=None,
+        with_source=True,
+        with_deflector=True,
+        with_point_source=True,
+        mag_pert=mag_pert_array
+    )
+
+
     # add image positions to sampled_params_dict
     # how to deal with diff. # of images when asking for x_point_source
     sampled_params_dict['num_images'] = slsim_lens_obj.image_number[0]
@@ -150,7 +168,8 @@ def sample_an_image():
     #sampled_params_dict['source_ps_image_x'] = lenst_kwargs[-1]['kwargs_ps'][0]['ra_image']
     #sampled_params_dict['source_ps_image_y'] = lenst_kwargs[-1]['kwargs_ps'][0]['dec_image']
 
-    return image_LSST_i, image_Roman_F158, slsim_lens_obj, sampled_params_dict
+
+    return image_LSST_i, image_Roman_F158, image_Roman_F158_mag_pert, slsim_lens_obj, sampled_params_dict
 
 
 # helper function copied from ddprism: (@swagnerc, @smericks): https://github.com/swagnercarena/ddprism/blob/main/ddprism/hubble_galaxies/build_parent_sample.py

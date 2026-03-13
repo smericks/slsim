@@ -1,4 +1,4 @@
-from scipy.stats import gaussian_kde, multivariate_normal
+from scipy.stats import gaussian_kde, multivariate_normal, loguniform
 from astropy.io import fits
 import numpy as np
 
@@ -53,7 +53,6 @@ for key in keys_of_interest[1:]:
 
 
 # fit the KDE
-print(catalog_samps.shape)
 samples_kde = gaussian_kde(catalog_samps)
 
 # required params for training set generation in SLSim Lens() convention
@@ -100,7 +99,14 @@ sampling_blocks = [
     'sampler_args':{
         'mean':np.asarray([4.,1.]),
         'cov':np.diag([0.1**2,0.1**2])}
+    },
+
+    # mag_pert
+    { 'param_keys':['mag_pert_im0','mag_pert_im1','mag_pert_im2','mag_pert_im3','mag_pert_im4'], 
+    'sampler_method':loguniform.rvs,
+    'sampler_args':{
+        'a':0.4, # what are these params? should've written down...
+        'b':2.5,
+        'size':5 }
     }
-
-
 ]
