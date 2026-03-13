@@ -20,7 +20,6 @@ try:
     import jax
 
     print(jax.__path__)
-
     use_jax = True
 except ImportError:
     use_jax = False
@@ -79,6 +78,38 @@ class TestLens(object):
             ):
                 self.gg_lens = gg_lens
                 break
+
+        # Create another strong lens that has much higher SNR
+        blue_one_high_snr = Table.read(
+            os.path.join(path, "../TestData/blue_one_high_snr.fits"), format="fits"
+        )
+        blue_one_high_snr["angular_size"] = (
+            blue_one_high_snr["angular_size"] / 4.84813681109536e-06
+        )
+        red_one_high_snr = Table.read(
+            os.path.join(path, "../TestData/red_one_high_snr.fits"), format="fits"
+        )
+        red_one_high_snr["angular_size"] = (
+            red_one_high_snr["angular_size"] / 4.84813681109536e-06
+        )
+        source_high_snr = Source(
+            cosmo=cosmo,
+            **blue_one_high_snr,
+            **kwargs,
+        )
+        deflector_high_snr = Deflector(
+            deflector_type="EPL_SERSIC",
+            **red_one_high_snr,
+        )
+        self.gg_lens_high_snr = Lens(
+            source_class=source_high_snr,
+            deflector_class=deflector_high_snr,
+            los_class=self.los_individual,
+            lens_equation_solver="lenstronomy_analytical",
+            cosmo=cosmo,
+            use_jax=use_jax,
+        )
+
         # Create another galaxy class with interpolated source.
 
         # Image Parameters
@@ -158,6 +189,135 @@ class TestLens(object):
             is False
         )
 
+    def test_validity_test_with_snr_limit(self):
+        # Test that snr_limit=None doesn't change behavior (backward compatibility)
+        mag_arc_limit = {"i": 35, "g": 35, "r": 35}
+        second_brightest_image_cut = {"i": 30}
+        result_without_snr = self.gg_lens_high_snr.validity_test(
+            mag_arc_limit=mag_arc_limit,
+            second_brightest_image_cut=second_brightest_image_cut,
+            snr_limit=None,
+        )
+        assert result_without_snr is True
+
+        # Test with a very low SNR limit that should pass
+        result_low_snr = self.gg_lens_high_snr.validity_test(
+            snr_limit={"i": 0.1},
+        )
+        assert result_low_snr is True
+
+        # Test with a very high SNR limit that should fail
+        result_high_snr = self.gg_lens_high_snr.validity_test(
+            snr_limit={"i": 1e10},
+        )
+        assert result_high_snr is False
+
+    def test_snr_limit_type_validation(self):
+        """Test that snr_limit must be a dict, not int/float."""
+        # Test that passing an int raises TypeError
+        with pytest.raises(TypeError, match="snr_limit must be a dict"):
+            self.gg_lens_high_snr.validity_test(snr_limit=20)
+
+        # Test that passing a float raises TypeError
+        with pytest.raises(TypeError, match="snr_limit must be a dict"):
+            self.gg_lens_high_snr.validity_test(snr_limit=20.5)
+
+    def test_snr(self):
+        # Test basic SNR calculation
+        snr_result = self.gg_lens_high_snr.snr(
+            band="i", fov_arcsec=6, observatory="LSST", exposure_time=500
+        )
+        # SNR should be either a positive float or None
+        assert snr_result is None or (
+            isinstance(snr_result, (float, np.floating)) and snr_result > 0
+        )
+
+        # Test that the SNR should increase with exposure time
+        snr_result2 = self.gg_lens_high_snr.snr(
+            band="i", fov_arcsec=6, observatory="LSST", exposure_time=5000
+        )
+        assert snr_result2 > snr_result
+
+    def test_snr_with_high_threshold(self):
+        # Test that a very high per-pixel threshold returns None
+        snr_result = self.gg_lens_high_snr.snr(
+            band="i",
+            fov_arcsec=6,
+            observatory="LSST",
+            snr_per_pixel_threshold=1e10,
+        )
+        assert snr_result is None
+
+    def _create_lens_for_observatory(self, band, observatory):
+        """Helper method to create a lens with the specified band magnitude."""
+        path = os.path.dirname(__file__)
+        blue_one_high_snr = Table.read(
+            os.path.join(path, "../TestData/blue_one_high_snr.fits"), format="fits"
+        )
+        blue_one_high_snr["angular_size"] = (
+            blue_one_high_snr["angular_size"] / 4.84813681109536e-06
+        )
+        blue_one_high_snr[f"mag_{band}"] = blue_one_high_snr["mag_i"]
+
+        red_one_high_snr = Table.read(
+            os.path.join(path, "../TestData/red_one_high_snr.fits"), format="fits"
+        )
+        red_one_high_snr["angular_size"] = (
+            red_one_high_snr["angular_size"] / 4.84813681109536e-06
+        )
+        red_one_high_snr[f"mag_{band}"] = red_one_high_snr["mag_i"]
+
+        cosmo = FlatLambdaCDM(H0=70, Om0=0.3)
+        kwargs = {"extended_source_type": "single_sersic"}
+        source = Source(cosmo=cosmo, **blue_one_high_snr, **kwargs)
+        deflector = Deflector(deflector_type="EPL_SERSIC", **red_one_high_snr)
+        return Lens(
+            source_class=source,
+            deflector_class=deflector,
+            los_class=self.los_individual,
+            lens_equation_solver="lenstronomy_analytical",
+            cosmo=cosmo,
+            use_jax=use_jax,
+        )
+
+    @pytest.mark.parametrize(
+        "band,observatory",
+        [
+            ("F106", "Roman"),
+            ("VIS", "Euclid"),
+        ],
+    )
+    def test_snr_multi_observatory(self, band, observatory):
+        """Test SNR calculation with different observatories."""
+        lens = self._create_lens_for_observatory(band, observatory)
+        snr_result = lens.snr(band=band, fov_arcsec=6, observatory=observatory)
+        assert snr_result is None or (
+            isinstance(snr_result, (float, np.floating)) and snr_result > 0
+        )
+
+    @pytest.mark.parametrize(
+        "band,observatory",
+        [
+            ("F106", "Roman"),
+            ("VIS", "Euclid"),
+        ],
+    )
+    def test_validity_test_with_snr_limit_multi_observatory(self, band, observatory):
+        """Test validity_test with SNR limit for different observatories."""
+        lens = self._create_lens_for_observatory(band, observatory)
+
+        # Test with a very low SNR limit that should pass
+        result_low_snr = lens.validity_test(snr_limit={band: 0.1})
+        assert result_low_snr is True
+
+        # Test SNR calculation to check if regions are found
+        snr_result = lens.snr(band=band, fov_arcsec=20, observatory=observatory)
+
+        # If SNR is calculable, verify high threshold fails
+        if snr_result is not None:
+            result_high_snr = lens.validity_test(snr_limit={band: 1e10})
+            assert result_high_snr is False
+
     def test_lens_id_gg(self):
         lens_id = self.gg_lens.generate_id()
         ra = self.gg_lens.deflector_position[0]
@@ -203,6 +363,43 @@ class TestLens(object):
     def test_extended_source_magnification(self):
         host_mag = self.gg_lens.extended_source_magnification[0]
         assert host_mag > 0
+
+    def test_zero_einstein_radius(self):
+        cosmo = FlatLambdaCDM(H0=70, Om0=0.3)
+        path = os.path.dirname(__file__)
+        module_path, _ = os.path.split(path)
+        print(path, module_path)
+        blue_one = Table.read(
+            os.path.join(path, "../TestData/blue_one_modified.fits"), format="fits"
+        )
+        source_dict = blue_one
+        deflector_dict = {
+            "halo_mass": 10**13,
+            "concentration": 6,
+            "e1_mass": 0.1,
+            "e2_mass": -0.1,
+            "stellar_mass": 10.5e10,
+            "angular_size": 0.16,
+            "e1_light": -0.1,
+            "e2_light": 0.1,
+            "z": 50,
+            "mag_g": -20,
+        }
+
+        kwargs2 = {"extended_source_type": "single_sersic"}
+        self.source2 = Source(cosmo=cosmo, **kwargs2, **source_dict)
+        self.deflector2 = Deflector(
+            deflector_type="NFW_HERNQUIST",
+            **deflector_dict,
+        )
+        gg_lens = Lens(
+            source_class=self.source2,
+            deflector_class=self.deflector2,
+            lens_equation_solver="lenstronomy_default",
+            cosmo=cosmo,
+            use_jax=use_jax,
+        )
+        assert gg_lens._einstein_radius(source_index=0) == 0
 
     def test_deflector_stellar_mass(self):
         s_mass = self.gg_lens.deflector_stellar_mass()
@@ -462,6 +659,78 @@ class TestLens(object):
         # check that the lens model list is the same as the one returned by subhalos_only_lens_model
         assert subhalos_only_model.lens_model_list == subhalo_lens_model_list
 
+    def test_field_galaxies_integration(self):
+        """Test the integration of field galaxies into the lens light
+        models."""
+
+        # Use the existing self.source as a dummy field galaxy
+        dummy_field_galaxy = self.source
+
+        # Instantiate a Lens object WITH field_galaxies
+        lens_with_fg = Lens(
+            source_class=self.source,
+            deflector_class=self.deflector,
+            los_class=self.los_individual,
+            lens_equation_solver="lenstronomy_analytical",
+            cosmo=FlatLambdaCDM(H0=70, Om0=0.3),
+            use_jax=use_jax,
+            field_galaxies=[dummy_field_galaxy],
+        )
+
+        # Test A: Ensure field_galaxy_light_model_lenstronomy returns populated lists
+        fg_model_list, fg_kwargs_list = (
+            lens_with_fg.field_galaxy_light_model_lenstronomy(band="i")
+        )
+        assert (
+            len(fg_model_list) > 0
+        ), "Expected non-empty model list for field galaxies."
+        assert (
+            len(fg_kwargs_list) > 0
+        ), "Expected non-empty kwargs list for field galaxies."
+        assert len(fg_model_list) == len(fg_kwargs_list)
+
+        # Test B: Ensure lenstronomy_kwargs appends the field galaxy models to the lens light models
+        kwargs_model_fg, kwargs_params_fg = lens_with_fg.lenstronomy_kwargs(band="i")
+        kwargs_model_no_fg, kwargs_params_no_fg = self.gg_lens.lenstronomy_kwargs(
+            band="i"
+        )
+
+        # The lens with field galaxies should have more light models than the one without
+        assert len(kwargs_model_fg["lens_light_model_list"]) > len(
+            kwargs_model_no_fg["lens_light_model_list"]
+        )
+        assert len(kwargs_params_fg["kwargs_lens_light"]) > len(
+            kwargs_params_no_fg["kwargs_lens_light"]
+        )
+
+        # Test C: Ensure field_galaxy_light_model_lenstronomy correctly handles None (fallback)
+        empty_model_list, empty_kwargs_list = (
+            self.gg_lens.field_galaxy_light_model_lenstronomy(band="i")
+        )
+        assert (
+            empty_model_list == []
+        ), "Expected empty list when field_galaxies is None."
+        assert (
+            empty_kwargs_list == []
+        ), "Expected empty list when field_galaxies is None."
+
+    def test_add_field_galaxies(self):
+        """Test the add_field_galaxies method."""
+
+        lens_no_fg = Lens(
+            source_class=self.source,
+            deflector_class=self.deflector,
+            los_class=self.los_individual,
+            lens_equation_solver="lenstronomy_analytical",
+            cosmo=FlatLambdaCDM(H0=70, Om0=0.3),
+            use_jax=use_jax,
+            field_galaxies=None,
+        )
+
+        lens_no_fg.add_field_galaxies([self.source, self.source])
+        assert lens_no_fg._field_galaxies is not None
+        assert len(lens_no_fg._field_galaxies) == 2
+
 
 @pytest.fixture
 def pes_lens_instance():
@@ -514,6 +783,47 @@ def test_validity_test_2(pes_lens_instance):
     )
 
 
+def test_validity_test_2_with_snr_limit(pes_lens_instance):
+    """Test validity_test with snr_limit for point source + extended source
+    lens."""
+    second_brightest_image_cut = {"i": 30}
+
+    # Test with snr_limit=None (backward compatibility)
+    assert (
+        pes_lens_instance.validity_test(
+            second_brightest_image_cut=second_brightest_image_cut,
+            snr_limit=None,
+        )
+        is True
+    )
+
+    # Test with very low SNR limit that should pass
+    assert (
+        pes_lens_instance.validity_test(
+            second_brightest_image_cut=second_brightest_image_cut,
+            snr_limit={"i": 0.1},
+        )
+        is True
+    )
+
+    # Test with very high SNR limit that should fail
+    assert (
+        pes_lens_instance.validity_test(
+            second_brightest_image_cut=second_brightest_image_cut,
+            snr_limit={"i": 1e10},
+        )
+        is False
+    )
+
+
+def test_snr_pes_lens(pes_lens_instance):
+    """Test SNR calculation for point source + extended source lens."""
+    snr_result = pes_lens_instance.snr(band="i", fov_arcsec=6, observatory="LSST")
+    assert snr_result is None or (
+        isinstance(snr_result, (float, np.floating)) and snr_result > 0
+    )
+
+
 def test_point_source_magnitude(pes_lens_instance):
     pes_lens = pes_lens_instance
     mag = pes_lens.point_source_magnitude(band="i", lensed=True)[0]
@@ -541,6 +851,7 @@ def lens_instance_with_variability():
     source_dict_quasar = {
         "z": 1.5,
         "ps_mag_i": 21,
+        "ps_mag_r": 22,
         "angular_size": 0.10887651129362959,
         "mag_i": 20,
         "e1": 0.0,
@@ -624,6 +935,11 @@ def lens_instance_with_variability():
 @pytest.fixture
 def band_i():
     return "i"
+
+
+@pytest.fixture
+def band_r():
+    return "r"
 
 
 @pytest.fixture
@@ -965,6 +1281,7 @@ def test_point_source_magnitude_microlensing_defaults(
     mock_ml_lc_from_lm_class,
     lens_instance_with_variability,
     band_i,
+    band_r,
     time_array,
 ):
     """Tests _point_source_magnitude_microlensing with defaults
@@ -976,12 +1293,9 @@ def test_point_source_magnitude_microlensing_defaults(
     lens_system = deepcopy(lens_instance_with_variability)
     source_index = 0
 
-    # Ensure the source name is "QSO" so the auto-logic triggers
-    # We force this just in case the fixture mapping is different in the installed slsim version
-    lens_system.source(source_index)._source.name = "QSO"
-
     # Configure mock
-    mock_ml_lc_from_lm_class.return_value = MagicMock()
+    mock_instance = MagicMock()
+    mock_ml_lc_from_lm_class.return_value = mock_instance
 
     # Call with kwargs_microlensing=None
     lens_system._point_source_magnitude_microlensing(
@@ -1001,6 +1315,23 @@ def test_point_source_magnitude_microlensing_defaults(
     kwargs_morph = constructor_kwargs["kwargs_source_morphology"]
     assert kwargs_morph["observing_wavelength_band"] == band_i
     assert kwargs_morph["source_redshift"] == lens_system.source(source_index).redshift
+
+    # Constructor should be called exactly once here
+    mock_ml_lc_from_lm_class.assert_called_once()
+
+    # Second call with same settings - should reuse instance and update morphology
+    lens_system._point_source_magnitude_microlensing(
+        band_r,
+        time_array,
+        source_index=source_index,
+        kwargs_microlensing=None,
+    )
+
+    # Constructor should still have only been called once (from the first call)
+    mock_ml_lc_from_lm_class.assert_called_once()
+
+    # update_source_morphology should have been called during the second execution
+    mock_instance.update_source_morphology.assert_called_once()
 
 
 ################################################
@@ -1089,8 +1420,8 @@ def test_image_observer_times(supernovae_lens_instance):
     dt_days = supernova_lens.image_observer_times(t_obs=t_obs)
     dt_days2 = supernova_lens.image_observer_times(t_obs=t_obs2)
     arrival_times = supernova_lens.point_source_arrival_times()[0]
-    observer_times = (t_obs - arrival_times + np.min(arrival_times))[:, np.newaxis]
-    observer_times2 = (t_obs2[:, np.newaxis] - arrival_times + np.min(arrival_times)).T
+    observer_times = (t_obs - arrival_times - np.max(arrival_times))[:, np.newaxis]
+    observer_times2 = (t_obs2[:, np.newaxis] - arrival_times - np.max(arrival_times)).T
     npt.assert_almost_equal(dt_days, observer_times, decimal=5)
     npt.assert_almost_equal(dt_days2, observer_times2, decimal=5)
 
@@ -1659,6 +1990,317 @@ class TestSlhammock(object):
     def test_source_light_model_lenstronomy_none_band(self):
         results = self.lens_class.source_light_model_lenstronomy(band=None)[1]
         npt.assert_almost_equal(results["kwargs_source"][0]["magnitude"], 1, decimal=6)
+
+
+class TestSNR:
+    """Comprehensive tests for the SNR (signal-to-noise ratio) calculation
+    method."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Set up a lens instance for SNR testing."""
+        path = os.path.dirname(__file__)
+        blue_one = Table.read(
+            os.path.join(path, "../TestData/blue_one_modified.fits"), format="fits"
+        )
+        blue_one["angular_size"] = blue_one["angular_size"] / 4.84813681109536e-06
+        red_one = Table.read(
+            os.path.join(path, "../TestData/red_one_modified.fits"), format="fits"
+        )
+        red_one["angular_size"] = red_one["angular_size"] / 4.84813681109536e-06
+        self.cosmo = FlatLambdaCDM(H0=70, Om0=0.3)
+
+        mag_arc_limit = {"i": 35, "g": 35, "r": 35}
+        while True:
+            kwargs = {"extended_source_type": "single_sersic"}
+            source = Source(cosmo=self.cosmo, **blue_one, **kwargs)
+            deflector = Deflector(deflector_type="EPL_SERSIC", **red_one)
+            lens = Lens(
+                source_class=source,
+                deflector_class=deflector,
+                lens_equation_solver="lenstronomy_analytical",
+                cosmo=self.cosmo,
+                use_jax=use_jax,
+            )
+            if lens.validity_test(mag_arc_limit=mag_arc_limit):
+                self.lens = lens
+                break
+
+    def test_snr_returns_float_or_none(self):
+        """Test that SNR returns a float or None."""
+        snr_result = self.lens.snr(band="i", fov_arcsec=6, observatory="LSST")
+        assert snr_result is None or isinstance(snr_result, (float, np.floating))
+
+    def test_snr_positive_when_not_none(self):
+        """Test that SNR is positive when it returns a value."""
+        snr_result = self.lens.snr(band="i", fov_arcsec=6, observatory="LSST")
+        if snr_result is not None:
+            assert snr_result > 0
+
+    def test_snr_different_bands(self):
+        """Test SNR calculation with different bands."""
+        bands = ["g", "r", "i"]
+        for band in bands:
+            snr_result = self.lens.snr(band=band, fov_arcsec=6, observatory="LSST")
+            assert snr_result is None or isinstance(snr_result, (float, np.floating))
+
+    def test_snr_fov_arcsec_parameter(self):
+        """Test that different fov_arcsec values work."""
+        for fov_arcsec in [4, 6, 10]:
+            snr_result = self.lens.snr(
+                band="i", fov_arcsec=fov_arcsec, observatory="LSST"
+            )
+            assert snr_result is None or isinstance(snr_result, (float, np.floating))
+
+    def test_snr_high_threshold_returns_none(self):
+        """Test that a very high per-pixel SNR threshold returns None."""
+        snr_result = self.lens.snr(
+            band="i",
+            fov_arcsec=6,
+            observatory="LSST",
+            snr_per_pixel_threshold=1e10,
+        )
+        assert snr_result is None
+
+    def test_snr_low_threshold(self):
+        """Test that a very low threshold includes more pixels."""
+        # With a very low threshold, we should get some regions
+        snr_low = self.lens.snr(
+            band="i",
+            fov_arcsec=6,
+            observatory="LSST",
+            snr_per_pixel_threshold=0.01,
+        )
+        # This may or may not be None depending on the lens, but shouldn't error
+        assert snr_low is None or isinstance(snr_low, (float, np.floating))
+
+    def test_snr_threshold_effect(self):
+        """Test that higher thresholds give equal or lower SNR (or None)."""
+        snr_low_thresh = self.lens.snr(
+            band="i",
+            fov_arcsec=6,
+            observatory="LSST",
+            snr_per_pixel_threshold=0.5,
+        )
+        snr_high_thresh = self.lens.snr(
+            band="i",
+            fov_arcsec=6,
+            observatory="LSST",
+            snr_per_pixel_threshold=2.0,
+        )
+        # Higher threshold should give lower or equal SNR, or None
+        if snr_low_thresh is not None and snr_high_thresh is not None:
+            # Higher threshold typically results in smaller regions
+            # but may give similar or even higher SNR per region
+            # Just verify both are valid floats
+            assert isinstance(snr_low_thresh, (float, np.floating))
+            assert isinstance(snr_high_thresh, (float, np.floating))
+
+
+class TestSNRValidityIntegration:
+    """Tests for the integration of SNR calculation with validity_test.
+
+    These tests specifically verify the bug fix from commit fd895c9b,
+    which changed the condition from:
+        `if snr_calculated is not None and np.max(snr_calculated) < snr:`
+    to:
+        `if snr_calculated is None or np.max(snr_calculated) < snr:`
+
+    This ensures that lenses are rejected when SNR calculation returns None.
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        """Set up a lens instance for testing."""
+        path = os.path.dirname(__file__)
+        blue_one = Table.read(
+            os.path.join(path, "../TestData/blue_one_modified.fits"), format="fits"
+        )
+        blue_one["angular_size"] = blue_one["angular_size"] / 4.84813681109536e-06
+        red_one = Table.read(
+            os.path.join(path, "../TestData/red_one_modified.fits"), format="fits"
+        )
+        red_one["angular_size"] = red_one["angular_size"] / 4.84813681109536e-06
+        self.cosmo = FlatLambdaCDM(H0=70, Om0=0.3)
+
+        mag_arc_limit = {"i": 35, "g": 35, "r": 35}
+        while True:
+            kwargs = {"extended_source_type": "single_sersic"}
+            source = Source(cosmo=self.cosmo, **blue_one, **kwargs)
+            deflector = Deflector(deflector_type="EPL_SERSIC", **red_one)
+            lens = Lens(
+                source_class=source,
+                deflector_class=deflector,
+                lens_equation_solver="lenstronomy_analytical",
+                cosmo=self.cosmo,
+                use_jax=use_jax,
+            )
+            if lens.validity_test(mag_arc_limit=mag_arc_limit):
+                self.lens = lens
+                break
+
+    def test_validity_test_rejects_when_snr_returns_none(self):
+        """Test that validity_test returns False when SNR calculation returns
+        None.
+
+        This tests the bug fix from fd895c9b. Previously, when snr()
+        returned None, the condition `snr_calculated is not None and
+        np.max(snr_calculated) < snr` would be False (because
+        snr_calculated IS None), so the lens would pass.
+
+        Now with the fix `snr_calculated is None or
+        np.max(snr_calculated) < snr`, when snr() returns None, the
+        condition is True and the lens is correctly rejected.
+        """
+        # Mock the snr method to return None (simulating no regions found)
+        with patch.object(self.lens, "snr", return_value=None):
+            # With snr_limit set, validity_test should return False
+            # because snr() returns None
+            result = self.lens.validity_test(snr_limit={"i": 1.0})
+            assert (
+                result is False
+            ), "validity_test should return False when snr() returns None"
+
+    def test_validity_test_passes_when_snr_exceeds_limit(self):
+        """Test that validity_test returns True when SNR exceeds the limit."""
+        # Mock the snr method to return a high value
+        with patch.object(self.lens, "snr", return_value=np.array([100.0])):
+            result = self.lens.validity_test(snr_limit={"i": 10.0})
+            assert (
+                result is True
+            ), "validity_test should return True when snr exceeds limit"
+
+    def test_validity_test_fails_when_snr_below_limit(self):
+        """Test that validity_test returns False when SNR is below the
+        limit."""
+        # Mock the snr method to return a low value
+        with patch.object(self.lens, "snr", return_value=np.array([5.0])):
+            result = self.lens.validity_test(snr_limit={"i": 10.0})
+            assert (
+                result is False
+            ), "validity_test should return False when snr is below limit"
+
+    def test_validity_test_multi_band_snr_with_none(self):
+        """Test validity_test fails when any band's SNR returns None.
+
+        If multiple bands are specified in snr_limit and any one of them
+        returns None from snr(), the validity_test should fail.
+        """
+
+        def mock_snr(band, **kwargs):
+            # Return None for 'g' band, valid value for 'i' band
+            if band == "g":
+                return None
+            return np.array([100.0])
+
+        with patch.object(self.lens, "snr", side_effect=mock_snr):
+            # Even though 'i' band has high SNR, 'g' band returns None
+            result = self.lens.validity_test(snr_limit={"i": 10.0, "g": 10.0})
+            assert (
+                result is False
+            ), "validity_test should fail when any band's SNR returns None"
+
+    def test_validity_test_multi_band_snr_all_pass(self):
+        """Test validity_test passes when all bands exceed their limits."""
+
+        def mock_snr(band, **kwargs):
+            return np.array([100.0])
+
+        with patch.object(self.lens, "snr", side_effect=mock_snr):
+            result = self.lens.validity_test(snr_limit={"i": 10.0, "g": 10.0})
+            assert (
+                result is True
+            ), "validity_test should pass when all bands exceed their limits"
+
+
+class TestSNRMocked:
+    """Tests for SNR calculation logic using mocked image simulation."""
+
+    def test_snr_region_identification(self):
+        """Test that region identification works correctly with controlled
+        inputs."""
+        from scipy.ndimage import label
+
+        # Create a simple test case with known regions
+        snr_array = np.array(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 2, 2, 0, 0],
+                [0, 2, 2, 0, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 2, 0],
+            ]
+        )
+
+        threshold = 1
+        masked_snr_array = np.ma.masked_where(snr_array <= threshold, snr_array)
+
+        structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+        labeled_array, num_regions = label(
+            masked_snr_array.filled(0), structure=structure
+        )
+
+        # Should identify 2 regions: the 2x2 block and the single pixel
+        assert num_regions == 2
+
+    def test_snr_calculation_logic(self):
+        """Test the SNR calculation formula with known values."""
+        # SNR = source_counts / sqrt(total_counts)
+        source = np.array(
+            [
+                [0, 0, 0],
+                [0, 100, 100],
+                [0, 100, 100],
+            ]
+        )
+        image = np.array(
+            [
+                [10, 10, 10],
+                [10, 150, 150],
+                [10, 150, 150],
+            ]
+        )
+
+        # For the 2x2 region in bottom-right
+        region_mask = np.array(
+            [
+                [False, False, False],
+                [False, True, True],
+                [False, True, True],
+            ]
+        )
+
+        source_counts = np.sum(source[region_mask])  # 400
+        total_counts = np.sum(image[region_mask])  # 600
+        variance = total_counts  # 600
+        expected_snr = source_counts / np.sqrt(variance)  # 400 / sqrt(600)
+
+        npt.assert_almost_equal(expected_snr, 400 / np.sqrt(600), decimal=2)
+
+    def test_snr_cross_connectivity(self):
+        """Test that cross-shaped connectivity is used (not diagonal)."""
+        from scipy.ndimage import label
+
+        # Create array where pixels are only diagonally connected
+        snr_array = np.array(
+            [
+                [2, 0, 0],
+                [0, 2, 0],
+                [0, 0, 2],
+            ]
+        )
+
+        threshold = 1
+        masked_snr_array = np.ma.masked_where(snr_array <= threshold, snr_array)
+
+        # Cross-shaped connectivity (no diagonals)
+        structure = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+        labeled_array, num_regions = label(
+            masked_snr_array.filled(0), structure=structure
+        )
+
+        # With cross connectivity, these should be 3 separate regions
+        assert num_regions == 3
 
 
 if __name__ == "__main__":

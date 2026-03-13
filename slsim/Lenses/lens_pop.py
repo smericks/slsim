@@ -43,7 +43,6 @@ class LensPop(LensedPopulationBase):
         self.cosmo = cosmo
         self._lens_galaxies = deflector_population
         self._sources = source_population
-
         self._factor_source = self.sky_area.to_value(
             "deg2"
         ) / self._sources.sky_area.to_value("deg2")
@@ -281,6 +280,7 @@ class LensPop(LensedPopulationBase):
                         final_sources = valid_sources[0]
                     else:
                         final_sources = valid_sources
+
                     lens_final = Lens(
                         deflector_class=_deflector,
                         source_class=final_sources,
