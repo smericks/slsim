@@ -26,6 +26,10 @@ required_parameters = {
     'source_center_x','source_center_y',
     'source_mag_i','source_mag_F158',# + any other bands!
     'source_ps_mag_i','source_ps_mag_F158'# + any other bands!
+
+    # microlensing
+    'mag_pert_im0','mag_pert_im1','mag_pert_im2','mag_pert_im3','mag_pert_im4',
+    'mag_pert_im5'
 }
 
 # import configuration file stuff (TODO fix this...)
@@ -118,6 +122,9 @@ def sample_an_image():
             if second_brightest_im_mag < 23.3:
                 havent_found_lens = False
 
+    # handle microlensing factors
+    mag_pert_array = [sampled_params_dict['mag_pert_im%d'%(n)] for n in range(0,5)]
+
     # TODO: simulate an image
     image_LSST_i = simulate_image(
         lens_class=slsim_lens_obj, 
@@ -128,25 +135,11 @@ def sample_an_image():
         kwargs_numerics=None,
         with_source=True,
         with_deflector=True,
-        with_point_source=True
+        with_point_source=True,
+        mag_pert=mag_pert_array
     )
 
     image_Roman_F158 = simulate_image(
-        lens_class=slsim_lens_obj, 
-        band='F158',
-        num_pix=66,
-        add_noise=True,
-        observatory="Roman",
-        kwargs_psf=None,
-        kwargs_numerics=None,
-        with_source=True,
-        with_deflector=True,
-        with_point_source=True
-    )
-
-    # make an image with magnification pertubations
-    mag_pert_array = [sampled_params_dict['mag_pert_im%d'%(n)] for n in range(0,5)]
-    image_Roman_F158_mag_pert = simulate_image(
         lens_class=slsim_lens_obj, 
         band='F158',
         num_pix=66,
@@ -169,7 +162,7 @@ def sample_an_image():
     #sampled_params_dict['source_ps_image_y'] = lenst_kwargs[-1]['kwargs_ps'][0]['dec_image']
 
 
-    return image_LSST_i, image_Roman_F158, image_Roman_F158_mag_pert, slsim_lens_obj, sampled_params_dict
+    return image_LSST_i, image_Roman_F158, slsim_lens_obj, sampled_params_dict
 
 
 # helper function copied from ddprism: (@swagnerc, @smericks): https://github.com/swagnercarena/ddprism/blob/main/ddprism/hubble_galaxies/build_parent_sample.py

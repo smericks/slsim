@@ -75,7 +75,6 @@ def simulate_image(
     :rtype: 2d numpy array
     """
     kwargs_model, kwargs_params = lens_class.lenstronomy_kwargs(band, time=t_obs)
-    print('kwargs_model: ', kwargs_model)
     from slsim.ImageSimulation import image_quality_lenstronomy
 
     # passing in `kwargs_single_band` is more efficient for the SNR criterion
@@ -101,7 +100,6 @@ def simulate_image(
     # TODO add mag_pert option (this is a hack for now)
     if mag_pert is not None:
         for band_idx in range(0,len(kwargs_ps)):
-            print('mag pert values: ', mag_pert)
             kwargs_ps[band_idx]['mag_pert'] = mag_pert
 
     if kwargs_numerics is None:
