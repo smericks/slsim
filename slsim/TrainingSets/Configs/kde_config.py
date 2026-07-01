@@ -8,11 +8,14 @@ keys_of_interest = [
     'deflector_pl_slope', # LOG
     'deflector_mass_e1',
     'deflector_mass_e2',
+    'x_deflector_mass_position_arcsec',
+    'y_deflector_mass_position_arcsec',
     'deflector_light_e1',
     'deflector_light_e2',
     'deflector_mag_i',
     'deflector_mag_F158',
     'deflector_light_R_eff_arcsec', # LOG
+    # TODO: add light position? 'x_deflector_light_position_arcsec', 'y_deflector_light_position_arcsec'
     #'deflector_light_n_sersic',
     'z_D', # LOG
     'external_shear_gamma1',
@@ -62,6 +65,7 @@ required_parameters = [
     'deflector_LOG_gamma_pl',
     'deflector_e1_mass',
     'deflector_e2_mass',
+    'deflector_center_x','deflector_center_y',
     'deflector_e1_light',
     'deflector_e2_light',
     'deflector_mag_i','deflector_mag_F158',# + any other bands!
@@ -70,7 +74,7 @@ required_parameters = [
     'deflector_LOG_z',
     'los_gamma1','los_gamma2',
     
-    # NOTE: source redshift is an edge case, treatly separately
+    # NOTE: source redshift is an edge case, treated separately
     'source_LOG_zS_minus_Zd',
     #'source_n_sersic',
     'source_LOG_angular_size',

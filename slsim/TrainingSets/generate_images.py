@@ -12,7 +12,9 @@ import h5py
 required_parameters = {
     # NOTE: anything with LOG_ prefix will be exponentiated before input
     'deflector_LOG_theta_E','deflector_LOG_gamma_pl','deflector_e1_mass',
-    'deflector_e2_mass','deflector_e1_light','deflector_e2_light',
+    'deflector_e2_mass',
+    'deflector_center_x','deflector_center_y',
+    'deflector_e1_light','deflector_e2_light',
     'deflector_mag_i','deflector_mag_F158',# + any other bands!
     'deflector_LOG_angular_size','deflector_n_sersic',
     'deflector_LOG_z',
@@ -62,7 +64,8 @@ def sample_an_image():
         # make a deflector (captures mass & light of the object...)
         # TODO: what about n_sersic?
         epl_sersic_required_params = ['LOG_theta_E','LOG_gamma_pl',
-            'e1_mass','e2_mass','e1_light','e2_light','mag_i','mag_F158',
+            'e1_mass','e2_mass','center_x','center_y',
+            'e1_light','e2_light','mag_i','mag_F158',
             'LOG_angular_size','n_sersic']
 
         deflector_dict = {}
